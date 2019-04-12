@@ -15,7 +15,7 @@ typedef int bool;
 #define MAX_PARAMS_ALLOWED 15
 #define MAX_FUNCTIONS_ALLOWED 50
 
-int functions_params[MAX_FUNCTIONS_ALLOWED][MAX_PARAMS_ALLOWED] = {{-1}};
+int functions_params[MAX_FUNCTIONS_ALLOWED][MAX_PARAMS_ALLOWED] = {{}};
 int function_counter = 0;
 int param_counter = 0;
 
@@ -30,18 +30,6 @@ int finalizeParameters() {
         param_counter = 0;
 
 	return temp;}
-
-// Aids on getting parameter types on function calls
-int expressions_params[MAX_PARAMS_ALLOWED] = {-1};
-int exprs_counter = 0;
-
-void addExpression(int type) {
-	expressions_params[exprs_counter] = type;
-	exprs_counter++;}
-
-void finalizeExpression() {
-	exprs_counter = 0;}
-
 
 %}
 %union {
@@ -136,8 +124,8 @@ function_decl	:	PUBLIC type ID '(' parameters ')'	{$$ = binNode(FUNC, strNode(ID
                 |	type ID '(' ')'				{$$ = uniNode(FUNC, strNode(ID, $2));}
 		;
 
-function_call	:	ID '(' ')'			{$$ = uniNode(FCALL, strNode(ID, $1)); }
-		|	ID '(' expressions ')'		{$$ = binNode(FCALL, strNode(ID, $1), $3);}
+function_call	:	ID '(' ')'			{$$ = uniNode(FCALL, strNode(ID, $1)); validateFunctionCall($1, NULL);}
+		|	ID '(' expressions ')'		{$$ = binNode(FCALL, strNode(ID, $1), $3); validateFunctionCall($1, $3);}
 		;
 
 
@@ -155,10 +143,10 @@ parameter	:	type ID		{$$ = strNode(ID, $2); $$->info = $1->info;}
 		;
 
 
-type    :   	INTEGER		{$$ = uniNode(INTEGER, 0); $$->info = 1;}
-        |   	NUMBER		{$$ = uniNode(NUMBER, 0); $$->info = 2;}
-        |   	STRING		{$$ = uniNode(STRING, 0); $$->info = 3;}
-        |	VOID		{$$ = uniNode(VOID, 0); $$->info = 0;}
+type    :   	INTEGER		{$$ = uniNode(INTEGER, 0); $$->info = 2;}
+        |   	NUMBER		{$$ = uniNode(NUMBER, 0); $$->info = 3;}
+        |   	STRING		{$$ = uniNode(STRING, 0); $$->info = 4;}
+        |	VOID		{$$ = uniNode(VOID, 0); $$->info = 1;}
         |	type '*'	{$$ = uniNode(PTR, 0); $$->info = calculatePointerType($1->info);}
         ;
 
@@ -237,14 +225,14 @@ expression	:	function_call				{$$ = $1;}
 		;
 
 
-expressions	:	expression			{addExpression($1->info); $$ = uniNode(EXPS, $1);}
-		|	expression ',' expressions	{addExpression($1->info); $$ = binNode(EXPS, $3, $1);}
+expressions	:	expression			{$$ = uniNode(EXPS, $1);}
+		|	expression ',' expressions	{$$ = binNode(EXPS, $3, $1);}
 		;
 
 
-literal	:	STR	{$$ = strNode(STR, $1); $$->info = 2;}
-	|	REAL	{$$ = realNode(NUM, $1); $$->info = 1;}
-	|	INT	{$$ = intNode(INT, $1); $$->info = 0;}
+literal	:	STR	{$$ = strNode(STR, $1); $$->info = 4;}
+	|	REAL	{$$ = realNode(NUM, $1); $$->info = 3;}
+	|	INT	{$$ = intNode(INT, $1); $$->info = 2;}
 	;
 
 
@@ -263,13 +251,13 @@ char **yynames =
 
 int calculatePointerType(int type) {
 	// void pointer
-	if (type==0) return 7;
+	if (type==1) return 8;
 	// integer pointer
-	if (type==1) return 4;
-	// string pointer
-	if (type==3) return 6;
-	// number pointer
 	if (type==2) return 5;
+	// string pointer
+	if (type==4) return 7;
+	// number pointer
+	if (type==3) return 6;
 	return 0;
 }
 
@@ -282,17 +270,43 @@ void declareFunction(int type, char* id, bool isPublic) {
 	IDnew(type, id, 0);
 }
 
-/*
-void validateFunctionCall(char *id, int types[]) {
+void validateFunctionCall(char *id, Node* params) {
 	long *fID = 0;
 
 	// Gets the fID if function exists
 	// Otherwise yyerror
 	IDfind(id, fID);
+	int f = (int)fID;
 
-	for (int i = 0; functions_params[fID][i] != -1 ; i++) {
-		if (functions_params[fID][i] !=
+	// Ugly way to get the number of expected parameters
+	int nparams = 0;
+	for (int i = 0; i < MAX_PARAMS_ALLOWED; i++) {
+		if (functions_params[f][i] != 0)
+			nparams++;
 	}
 
+	// No arguments received
+	if (params == NULL) {
+		if (nparams == 0) return;
+		yyerror("Missing arguments;");
+	} else {
+
+		// Checks if arguments received match
+		// With parameters
+		int nargs = 0;
+		int i = 0;
+		for (Node* node = params; node->attrib == 314; node = node->value.sub.n[0]) {
+			if (i > nparams-1) yyerror("More arguments provided than expected;");
+
+			else if ((node->value.sub.n[1] != NULL) && (node->value.sub.n[1]->info != functions_params[f][i]))
+				yyerror("Wrong argument type;");
+			else if ((node->value.sub.n[1] == NULL) && (node->value.sub.n[0]->info != functions_params[f][i]))
+				yyerror("Wrong argument type;");
+
+			i++;
+			nargs++;
+		}
+		if (nargs < nparams) yyerror("Missing arguments;");
+	}
 }
-*/
+
