@@ -8,9 +8,8 @@
 extern int yylex();
 void yyerror(char *s);
 
-typedef int bool;
-#define true 1
-#define false 0
+
+int returnT;
 
 /* Messy stuff to deal with storing info
  from functions parameters */
@@ -22,9 +21,9 @@ int old_function = -1;
 int param_counter = 0;
 
 // Adds a parameter type to the function is evaluating
-void addParameter(int type) {
+void addParameter(int type, char *id) {
     if (old_function != function_counter) {
-        IDpush();
+    	IDpush();
         old_function = function_counter;
     }
 
@@ -87,6 +86,7 @@ int finalizeParameters() {
 
 %%
 
+
 file :   declarations    {printNode(uniNode(DECLS, $1), 0, yynames);}
      |
      ;
@@ -102,55 +102,56 @@ declaration :   identifier ';'      {$$ = $1;}
             ;
 
 
-identifier	:	type ID                             {$$ = uniNode(DECL, strNode(ID, $2)); IDnew($1->info, $2, 0);}
-		    |	type ID ATR expression              {$$ = binNode(IDE, strNode(ID, $2), $4); IDnew($1->info, $2, 0);}
-		    |	CONST type ID ATR expression        {$$ = binNode(IDE, strNode(ID, $3), $5); IDnew($2->info + 2000, $3, 0);}
-		    |	PUBLIC type ID                      {$$ = uniNode(DECL, strNode(ID, $3)); IDnew($2->info, $3, 0);}
-		    |	PUBLIC type ID ATR expression       {$$ = binNode(IDE, strNode(ID, $3), $5); IDnew($2->info, $3, 0);}
-		    |	PUBLIC CONST type ID                {$$ = uniNode(DECL, strNode(ID, $4)); IDnew($3->info, $4, 0);}
-		    |	PUBLIC CONST type ID ATR expression	{$$ = binNode(IDE, strNode(ID, $4), $6); IDnew($3->info, $4, 0);}
+identifier	:	type ID                             {$$ = uniNode(ID, strNode(ID, $2)); IDnew($1->info, $2, 0);}
+		    |	type ID ATR expression              {$$ = binNode(ATR, $4, strNode(ID, $2)); IDnew($1->info, $2, 0); checkAttributionTypes($1->info, $4->info);}
+		    |	CONST type ID ATR expression        {$$ = binNode(ATR, $5, strNode(ID, $3)); IDnew($2->info + 2000, $3, 0); checkAttributionTypes($2->info - 2000, $5->info);}
+		    |	PUBLIC type ID                      {$$ = uniNode(ID, strNode(ID, $3)); IDnew($2->info, $3, 0);}
+		    |	PUBLIC type ID ATR expression       {$$ = binNode(ATR, $5, strNode(ID, $3)); IDnew($2->info, $3, 0); checkAttributionTypes($2->info, $5->info);}
+		    |	PUBLIC CONST type ID                {$$ = uniNode(ID, strNode(ID, $4)); IDnew($3->info + 2000, $4, 0);}
+		    |	PUBLIC CONST type ID ATR expression	{$$ = binNode(ATR, $6, strNode(ID, $4)); IDnew($3->info + 2000, $4, 0); checkAttributionTypes($3->info - 2000, $6->info);}
 		    ;
 
 
 block_var   :	type ID                     {$$ = uniNode(ID, strNode(ID, $2)); IDnew($1->info, $2, 0);}
-            |	type ID ATR expression      {$$ = binNode(IDE, strNode(ID, $2), $4); $$->info = checkAttributionTypes($1->info, $4->info);}
+            |	type ID ATR expression      {$$ = binNode(ATR, $4, uniNode(ID, strNode(ID, $2))); $$->info = checkAttributionTypes($1->info, $4->info);}
             ;
 
 
-function    :   function_def ';'        {$$ = $1; $$->attrib = finalizeParameters();}
-            |   function_decl ';'       {$$ = $1; $$->attrib = finalizeParameters();}
+function    :   function_def ';'        {$$ = $1; $$->fId = finalizeParameters();}
+            |   function_decl ';'       {$$ = $1; $$->fId = finalizeParameters();}
 		    ;
 
 
-function_def	:	PUBLIC type ID '(' parameters ')' block 	{IDpop(); declareFunction($2->info, $3, true); $$ = binNode(FUNC, strNode(ID, $3), binNode(BODY, intNode(INT, 0), $7));}
-                |	PUBLIC type ID '(' ')' block			    {IDpop(); declareFunction($2->info, $3, true); $$ = binNode(FUNC, strNode(ID, $3), binNode(BODY, intNode(INT, 0), $6));}
-                |	type ID '(' parameters ')' block		    {IDpop(); declareFunction($1->info, $2, false); $$ = binNode(FUNC, strNode(ID, $2), binNode(BODY, intNode(INT, 0), $6));}
-                |	type ID '(' ')' block 				        {IDpop(); declareFunction($1->info, $2, false); $$ = binNode(FUNC, strNode(ID, $2), binNode(BODY, intNode(INT, 0), $5));}
+function_def	:	PUBLIC type ID '(' parameters ')' block 	{IDpop(); $$ = binNode(FUNC, strNode(ID, $3), $7); checkReturnType($2->info);}
+                |	PUBLIC type ID '(' ')' block			    {IDpop(); $$ = binNode(FUNC, strNode(ID, $3), $6); checkReturnType($2->info);}
+                |	type ID '(' parameters ')' block		    {IDpop(); $$ = binNode(FUNC, strNode(ID, $2), $6); checkReturnType($1->info);}
+                |	type ID '(' ')' block 				        {IDpop(); $$ = binNode(FUNC, strNode(ID, $2), $5); checkReturnType($1->info);}
                 ;
 
 
-function_decl	:	PUBLIC type ID '(' parameters ')'	{IDpop(); declareFunction($2->info, $3, false); $$ = uniNode(FUNC, strNode(ID, $3));}
-                |	PUBLIC type ID '(' ')'			    {IDpop(); declareFunction($2->info, $3, false); $$ = uniNode(FUNC, strNode(ID, $3));}
-                |	type ID '(' parameters ')'		    {IDpop(); declareFunction($1->info, $2, false); $$ = uniNode(FUNC, strNode(ID, $2));}
-                |	type ID '(' ')'				        {IDpop(); declareFunction($1->info, $2, false); $$ = uniNode(FUNC, strNode(ID, $2));}
+function_decl	:	PUBLIC type ID '(' parameters ')'	{IDpop(); IDnew($2->info + 1000, $3, 0); $$ = binNode(FUNC, strNode(ID, $3), NULL);}
+                |	PUBLIC type ID '(' ')'			    {IDpop(); IDnew($2->info + 1000, $3, 0); $$ = binNode(FUNC, strNode(ID, $3), NULL);}
+                |	type ID '(' parameters ')'		    {IDpop(); IDnew($1->info + 1000, $2, 0); $$ = binNode(FUNC, strNode(ID, $2), NULL);}
+                |	type ID '(' ')'				        {IDpop(); IDnew($1->info + 1000, $2, 0); $$ = binNode(FUNC, strNode(ID, $2), NULL);}
 		        ;
 
-function_call	:   ID '(' ')'                  {$$ = uniNode(FCALL, strNode(ID, $1)); validateFunctionCall($1, NULL);}
+
+function_call	:   ID '(' ')'                  {$$ = binNode(FCALL, strNode(ID, $1), NULL); validateFunctionCall($1, NULL);}
                 |	ID '(' expressions ')'      {$$ = binNode(FCALL, strNode(ID, $1), $3); validateFunctionCall($1, $3);}
                 ;
 
 
 block_vars	:   block_var ';'                   {$$ = $1;}
-            |	block_vars block_var ';'        {$$ = binNode(BVARS, $1, $2); $$->info = $1->info + $2->info;}
+            |	block_vars block_var ';'        {$$ = binNode(BVARS, $1, $2);}
             ;
 
 
-parameters	:	parameter                   {addParameter($1->info); $$ = uniNode(PARAMS, $1); $$->info = $1->info;}
-		    |	parameters ',' parameter    {addParameter($3->info); $$ = binNode(PARAMS, $1, $3);}
+parameters	:	parameter                   {$$ = uniNode(PARAMS, $1); $$->info = $1->info;}
+		    |	parameters ',' parameter    {$$ = binNode(PARAMS, $1, $3);}
 		    ;
 
 
-parameter	:	type ID     {$$ = strNode(ID, $2); $$->info = $1->info; IDnew($1->info, $2, 0); /* Apparently evrth is global for this delivery, but who knows */}
+parameter	:	type ID     {addParameter($1->info, $2); $$ = strNode(ID, $2); $$->info = $1->info; IDnew($1->info, $2, 0); /* Apparently evrth is global for this delivery, but who knows */}
             ;
 
 
@@ -193,8 +194,11 @@ instruction	:	expression ';'                  {$$ = $1;}
 conditional	:	IF expression conditional_block      {$$ = binNode(IF, $2, $3);}
 	    	;
 
+
 conditional_block   : THEN instruction %prec dummyELSE  {$$ = uniNode(IFBLOCK, $2);}
                     | THEN instruction ELSE instruction {$$ = binNode(IFBLOCK, $2, $4);}
+                    ;
+
 
 loops	:	DO instruction WHILE expression ';'                                             {$$ = binNode(WHILE, $2, $4);}
         |	FOR leftvalue IN expression UPTO expression DO instruction                      {$$ = quadNode(FOR, $2, $4, $6, $8); /*nicht so gut*/}
@@ -249,8 +253,9 @@ literal	:	STR     {$$ = strNode(STR, $1); $$->info = 4;}
 
 
 leftvalue	:	ID '[' expression ']'   {$$ = binNode(MEM, strNode(ID, $1), $3);}
-		    |	ID                      {$$ = strNode(ID, $1); $$->info = IDfind($1, 0);}
+		    |	ID                      {$$ = strNode(ID, $1); $$->info = IDfind($1, (long*)IDtest); }
 		    ;
+
 
 %%
 
@@ -260,14 +265,6 @@ char **yynames =
 #else
 	0;
 #endif
-
-void declareVariable(int type, char* id, bool isConst, bool isPublic) {
-	IDnew(type, id, 0);
-}
-
-void declareFunction(int type, char* id, bool isPublic) {
-	IDnew(type + 1000, id, 0);
-}
 
 void validateFunctionCall(char *id, Node* params) {
 	long *fID = 0;
@@ -294,7 +291,8 @@ void validateFunctionCall(char *id, Node* params) {
 		// With parameters
 		int nargs = 0;
 		int i = 0;
-		// Aid: 314 node->attrib == 314 Avaliates if it is an expression node
+
+		// Aid: 314 node->attrib == 314 Avaliates if it is an expression node or literal
 		for (Node* node = params; node->attrib == 314; node = node->value.sub.n[0]) {
 			if (i > nparams-1) yyerror("More arguments provided than expected. Check function declaration.");
 
@@ -335,6 +333,13 @@ int checkBinTypes(int n1, int n2) {
  * and confirms the validity of
  * the attribution operation*/
 int checkAttributionTypes(int n1, int n2) {
+
+	//it's a function
+	if (n1 == -1) {
+		returnT = n2;
+		return n2;
+	}
+
     if (n1 == n2) return n1;
 
     // an integer can be a number too
@@ -360,4 +365,8 @@ int calculatePointerType(int type) {
     // number pointer
     if (type==3) return 6;
     return 0;
+}
+
+void checkReturnType(int type) {
+	if (type != returnT) yyerror("Variable undeclared or problem with return type;");
 }
