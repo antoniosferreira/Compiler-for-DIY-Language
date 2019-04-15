@@ -22,6 +22,7 @@ struct typeNode {
     NodeType type;		/* type of node */ 
     void *user;			/* pointer to any user data */ 
     int   attrib;		/* user defined attributes */
+    int fId;
     int   line;			/* input file parse line */
     void *state;		/* for the instruction selector (burg) */ 
     int   info;			/* specific info such as type or register used */
