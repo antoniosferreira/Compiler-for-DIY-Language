@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <node.h>
+#include "node.h"
 #include "y.tab.h"
 static int eoi; /* end of instruction */
 static int ncom; /* comment nesting level */
@@ -61,7 +61,7 @@ FLT	[0-9]+\.[0-9]+([Ee][+-]?[0-9]+)?
 [0-9]+			eoi = 1; errno = 0; yylval.i = strtol(yytext, 0, 10); if (errno == ERANGE) yyerror("overflow in decimal constant"); return INT;
 0b[01]+			eoi = 1; errno = 0; yylval.i = strtol(yytext+2, 0, 2); if (errno == ERANGE) yyerror("overflow in binary constant"); return INT;
 {FLT}			eoi = 1; yylval.r = strtod(yytext, 0); return REAL;
-[-<>+*/%=|&!;#{},\[\](]	eoi = 0; return *yytext;
+[-<>+*/%=|&~!;#{},\[\](]	eoi = 0; return *yytext;
 [)!]			eoi = 1; return *yytext;
 
 [ \t\r]+		; /* ignore whitespace */

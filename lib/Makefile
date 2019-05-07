@@ -4,7 +4,7 @@ CC=gcc
 
 all:: lib$(LIB).a
 
-lib$(LIB).a: node.o tabid.o main.o list.o
+lib$(LIB).a: node.o tabid.o main.o
 	ar crl $@ $?
 
 clean::

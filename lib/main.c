@@ -6,7 +6,7 @@
 #include <ctype.h>
 
 char *ext = ".asm", *prog, *infile = "<<stdin>>", *outfile = "out.asm";
-int errors, opt, tree, trace, yyparse(void);
+int errors, opt, tree, trace, initial, yyparse(void);
 FILE *outfp;
 extern int IDdebug;
 
@@ -37,9 +37,10 @@ int main(int argc, char *argv[]) {
 
   prog = argv[0];
 
+  if (argc > 1 && strcmp(argv[1], "-initial") == 0) { initial = 1; argc--; argv++; ext = ".out"; outfile = "out.out"; }
   if (argc > 1 && strcmp(argv[1], "-trace") == 0) { IDdebug = trace = 1; argc--; argv++; }
   if (argc > 3) {
-    fprintf(stderr, "USAGE: %s [-trace] [infile]\n",
+    fprintf(stderr, "USAGE: %s [-initial] [-trace] [infile]\n",
 	    argv[0]);
     exit(1);
   }
@@ -57,7 +58,7 @@ int main(int argc, char *argv[]) {
       outfile = malloc(strlen(argv[1])+strlen(ext)+1);
       strcpy(outfile, argv[1]);
       if ((ptr = strrchr(outfile, '.')) == 0)
-	ptr = outfile + strlen(outfile);
+      ptr = outfile + strlen(outfile);
       strcpy(ptr, ext);
   }
   if (argc > 2) outfile = argv[2];
@@ -66,6 +67,17 @@ int main(int argc, char *argv[]) {
     perror(outfile);
     return 1;
   }
+
+  if (initial) {
+    int tk, yylex();
+    extern char **yynames;
+    while ((tk = yylex())) 
+      if (tk > 255)
+        printf("%d:\t%s\n", tk, yynames[tk]);
+      else
+        printf("%d:\t%c\n", tk, tk);
+    return 0;
+	}
 
   if (yyparse() != 0 || errors > 0) {
     fprintf(stderr, "%d errors in %s\n", errors, infile);

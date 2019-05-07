@@ -403,12 +403,12 @@ static char *pfNAMES[] = { 0, "comm", "nop", "imm", "add", "sub", "mul", "div",
 #define pfASM "@ ASM\n\t%s\n"
 #define pfBB "@ BB\n"
 
-#define pfARG1	"; ARG1\n\tldr\tr0, [sp]\n"
-#define pfARG2	"; ARG2\n\tldr\tr1, [sp,#4]\n"
-#define pfARG3	"; ARG3\n\tldr\tr2, [sp,#8]\n"
-#define pfARG4	"; ARG4\n\tldr\tr3, [sp,#12]\n"
-#define pfARG1D	"; ARG1D\n\tldr\tr0, [sp]\n\tldr\tr1, [sp,#4]\n"
-#define pfARG2D	"; ARG2D\n\tldr\tr0, [sp,#8]\n\tldr\tr1, [sp,#12]\n"
+#define pfARG1	"@ ARG1\n\tldr\tr0, [sp]\n"
+#define pfARG2	"@ ARG2\n\tldr\tr1, [sp,#4]\n"
+#define pfARG3	"@ ARG3\n\tldr\tr2, [sp,#8]\n"
+#define pfARG4	"@ ARG4\n\tldr\tr3, [sp,#12]\n"
+#define pfARG1D	"@ ARG1D\n\tldr\tr0, [sp]\n\tldr\tr1, [sp,#4]\n"
+#define pfARG2D	"@ ARG2D\n\tldr\tr0, [sp,#8]\n\tldr\tr1, [sp,#12]\n"
 
 #elif defined(pfAMD64)
 #define pfWORD 8
