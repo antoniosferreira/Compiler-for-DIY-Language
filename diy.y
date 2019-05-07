@@ -5,9 +5,14 @@
 #include <string.h>
 #include "node.h"
 #include "tabid.h"
+#include "list.c"
 extern int yylex();
 void yyerror(char *s);
 
+// Undeclared vars or calls
+// inside a function
+ListNode variables;
+ListNode functionCalls;
 
 int returnT;
 
@@ -103,17 +108,17 @@ declaration :   identifier ';'      {$$ = $1;}
 
 
 identifier	:	type ID                             {$$ = uniNode(ID, strNode(ID, $2)); IDnew($1->info, $2, 0);}
-		    |	type ID ATR expression              {$$ = binNode(ATR, $4, strNode(ID, $2)); IDnew($1->info, $2, 0); checkAttributionTypes($1->info, $4->info);}
-		    |	CONST type ID ATR expression        {$$ = binNode(ATR, $5, strNode(ID, $3)); IDnew($2->info + 2000, $3, 0); checkAttributionTypes($2->info - 2000, $5->info);}
+		    |	type ID ATR expression              {$$ = binNode(ATR, $4, strNode(ID, $2)); IDnew($1->info, $2, 0); checkAttributionTypes(NULL, $1->info, $4->info);}
+		    |	CONST type ID ATR expression        {$$ = binNode(ATR, $5, strNode(ID, $3)); IDnew($2->info + 2000, $3, 0); checkAttributionTypes(NULL, $2->info - 2000, $5->info);}
 		    |	PUBLIC type ID                      {$$ = uniNode(ID, strNode(ID, $3)); IDnew($2->info, $3, 0);}
-		    |	PUBLIC type ID ATR expression       {$$ = binNode(ATR, $5, strNode(ID, $3)); IDnew($2->info, $3, 0); checkAttributionTypes($2->info, $5->info);}
+		    |	PUBLIC type ID ATR expression       {$$ = binNode(ATR, $5, strNode(ID, $3)); IDnew($2->info, $3, 0); checkAttributionTypes(NULL, $2->info, $5->info);}
 		    |	PUBLIC CONST type ID                {$$ = uniNode(ID, strNode(ID, $4)); IDnew($3->info + 2000, $4, 0);}
-		    |	PUBLIC CONST type ID ATR expression	{$$ = binNode(ATR, $6, strNode(ID, $4)); IDnew($3->info + 2000, $4, 0); checkAttributionTypes($3->info - 2000, $6->info);}
+		    |	PUBLIC CONST type ID ATR expression	{$$ = binNode(ATR, $6, strNode(ID, $4)); IDnew($3->info + 2000, $4, 0); checkAttributionTypes(NULL, $3->info - 2000, $6->info);}
 		    ;
 
 
 block_var   :	type ID                     {$$ = uniNode(ID, strNode(ID, $2)); IDnew($1->info, $2, 0);}
-            |	type ID ATR expression      {$$ = binNode(ATR, $4, uniNode(ID, strNode(ID, $2))); $$->info = checkAttributionTypes($1->info, $4->info);}
+            |	type ID ATR expression      {$$ = binNode(ATR, $4, uniNode(ID, strNode(ID, $2))); $$->info = checkAttributionTypes($2, $1->info, $4->info);}
             ;
 
 
@@ -122,10 +127,10 @@ function    :   function_def ';'        {$$ = $1; $$->fId = finalizeParameters()
 		    ;
 
 
-function_def	:	PUBLIC type ID '(' parameters ')' block 	{IDpop(); $$ = binNode(FUNC, strNode(ID, $3), $7); checkReturnType($2->info);}
-                |	PUBLIC type ID '(' ')' block			    {IDpop(); $$ = binNode(FUNC, strNode(ID, $3), $6); checkReturnType($2->info);}
-                |	type ID '(' parameters ')' block		    {IDpop(); $$ = binNode(FUNC, strNode(ID, $2), $6); checkReturnType($1->info);}
-                |	type ID '(' ')' block 				        {IDpop(); $$ = binNode(FUNC, strNode(ID, $2), $5); checkReturnType($1->info);}
+function_def	:	PUBLIC type ID '(' parameters ')' block 	{IDpop(); $$ = binNode(FUNC, strNode(ID, $3), $7); checkIndefinedTypes($3, $2->info);}
+                |	PUBLIC type ID '(' ')' block			    {IDpop(); $$ = binNode(FUNC, strNode(ID, $3), $6); checkIndefinedTypes($3, $2->info);}
+                |	type ID '(' parameters ')' block		    {IDpop(); $$ = binNode(FUNC, strNode(ID, $2), $6); checkIndefinedTypes($2, $1->info);}
+                |	type ID '(' ')' block 				        {IDpop(); $$ = binNode(FUNC, strNode(ID, $2), $5); checkIndefinedTypes($2, $1->info);}
                 ;
 
 
@@ -253,7 +258,7 @@ literal	:	STR     {$$ = strNode(STR, $1); $$->info = 4;}
 
 
 leftvalue	:	ID '[' expression ']'   {$$ = binNode(MEM, strNode(ID, $1), $3);}
-		    |	ID                      {$$ = strNode(ID, $1); $$->info = IDfind($1, (long*)IDtest); }
+		    |	ID                      {$$ = strNode(ID, $1); $$->info = IDfind($1, 0); }
 		    ;
 
 
@@ -332,12 +337,14 @@ int checkBinTypes(int n1, int n2) {
 /* This function receives two types
  * and confirms the validity of
  * the attribution operation*/
-int checkAttributionTypes(int n1, int n2) {
+int checkAttributionTypes(char* id, int n1, int n2) {
+
 
 	//it's a function
 	if (n1 == -1) {
-		returnT = n2;
-		return n2;
+		// adds to variables
+		add(null, NULL);
+		return 0;
 	}
 
     if (n1 == n2) return n1;
@@ -367,6 +374,21 @@ int calculatePointerType(int type) {
     return 0;
 }
 
-void checkReturnType(int type) {
-	if (type != returnT) yyerror("Variable undeclared or problem with return type;");
+void checkIndefinedTypes(char* id, int type) {
+
+	ListNode aux = variables;
+	// check variables
+	while (aux != NULL) {
+		if (strcmp(aux->id, id) != 0) yyerror("Variable not declared;");
+
+	}
+	free(variables);
+
+	// check functions
+	aux = functionCalls;
+	while (aux != NULL) {
+		if (strcmp(aux->id, id) != 0) yyerror("Function not declared");
+	}
+	free(functionCalls);
+
 }
