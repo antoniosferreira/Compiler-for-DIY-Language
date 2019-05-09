@@ -1,0 +1,89 @@
+%term OPEN='{'
+%term CLOSE='}'
+%term ARGS=','
+%term END=';'
+%term ALLOC='#'
+%term FACT='!'
+%term ADD='+'
+%term SUB='-'
+%term MUL='*'
+%term DIV='/'
+%term MOD='%'
+%term LT='<'
+%term GT='>'
+%term EQ='='
+%term AND='&'
+%term OR='|'
+%term STAR='('
+%term EN=')'
+%include "y.tab.h"
+%%
+
+base    : NIL                           {}
+base    : WHILE(DO, expr)               {}
+base    : END(atr_aux, FOR)                 {}
+base    : if_aux                {}
+base    : ELSE(if_aux, stmt)    {}
+base    : ALLOC(lv, expr)               {}
+base    : expr                          {}
+base    : bloco                         {}
+
+
+if_aux  : IF(expr, stmt)            {}
+atr_aux : ATR(expr, lv)             {}
+
+expr    : ptr_aux                   {fprintf(yyout, pfLOAD);}
+expr    : PTR(ptr_aux)              {}
+expr    : ATR(expr, lv)             {fprintf(yyout, pfSTORE);}
+expr    : INT                       {fprintf(yyout, pfIMM, RIGHT_CHILD(p)->value.i);}
+expr    : STR                       {}
+expr    : REAL                      {}
+expr    : UMINUS(expr)              {}
+expr    : NOT(expr)                 {}
+expr    : REF(expr)                 {}
+expr    : FACT(expr)                {}
+expr    : INCR(lv)                  {}
+expr    : DECR(lv)                  {}
+expr    : POSINC(lv)                {}
+expr    : POSDEC(lv)                {}
+expr    : ADD(expr, expr)           {fprintf(yyout, pfADD);}
+expr    : SUB(expr, expr)           {fprintf(yyout, pfSUB);}
+expr    : MUL(expr, expr)           {fprintf(yyout, pfMUL);}
+expr    : DIV(expr, expr)           {fprintf(yyout, pfDIV);}
+expr    : MOD(expr, expr)           {fprintf(yyout, pfMOD);}
+expr    : LT(expr, expr)            {fprintf(yyout, pfLT);}
+expr    : GT(expr, expr)            {fprintf(yyout, pfGT);}
+expr    : GE(expr, expr)            {fprintf(yyout, pfGE);}
+expr    : LE(expr, expr)            {fprintf(yyout, pfLE);}
+expr    : NE(expr, expr)            {fprintf(yyout, pfNE);}
+expr    : EQ(expr, expr)            {fprintf(yyout, pfEQ);}
+expr    : AND(expr, expr)           {fprintf(yyout, pfAND);}
+expr    : OR(expr, expr)            {fprintf(yyout, pfOR);}
+expr    : CALL(ID, args)            {}
+expr    : CALL(ID, NIL)             {}
+
+ptr_aux : PTR(lv)                   {}
+
+stmt    : base                         {}
+stmt    : BREAK(INT)                   {}
+stmt    : CONTINUE(INT)                {}
+
+bloco   : OPEN(list, decls)           {}
+bloco   : OPEN(end, decls)            {}
+
+
+args    : ARGS(NIL, expr)           {}
+args    : ARGS(args, expr)          {}
+
+list    : base                      {}
+list    : END(list, base)           {}
+
+decls   : END(decls, param)         {}
+
+param   :   PARAM(INT, ID)          {}
+
+end    : BREAK(INT)                   {}
+end    : CONTINUE(INT)                {}
+
+
+lv  :   ID                          {}

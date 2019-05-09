@@ -6,13 +6,131 @@
 #include "node.h"
 #include "tabid.h"
 #include "postfix.h"
+
+extern FILE *yyout;
 %}
+%term BLOCO='{'
+%term CLOSE='}'
+%term ARGS=','
 %term END=';'
+%term ALLOC='#'
+%term FACT='!'
+%term ADD='+'
+%term SUB='-'
+%term MUL='*'
+%term DIV='/'
+%term MOD='%'
+%term LT='<'
+%term GT='>'
+%term EQ='='
+%term AND='&'
+%term OR='|'
+%term STAR='('
+%term EN=')'
 %include "y.tab.h"
 %%
-stmt:	END	1	{	}
+
+bloco   : BLOCO(list, decls)
+bloco   : BLOCO(end, decls)
+
+end     : END(list, end)
+
+decls   : END(decls, PARAM)
+
+
+list    : base
+list    : END(list, base)
+
+base    : bloco
+base    : expr
+
+expr    : ptr_aux                 0  {fprintf(yyout, pfLOAD);}
+expr    : PTR(ptr_aux)            0  {fprintf(yyout, pfLOAD);}
+expr    : ATR(expr, lv)           0  {fprintf(yyout, pfSTORE);}
+expr    : INT                     0  {fprintf(yyout, pfIMM, RIGHT_CHILD(p)->value.i);}
+expr    : STR                     0  {}
+expr    : REAL                    0  {}
+expr    : UMINUS(expr)            0  {}
+expr    : NOT(expr)               0  {}
+expr    : REF(expr)               0  {}
+expr    : FACT(expr)              0  {}
+expr    : INCR(lv)                0  {}
+expr    : DECR(lv)                0  {}
+expr    : POSINC(lv)              0  {}
+expr    : POSDEC(lv)              0  {}
+expr    : ADD(expr, expr)         0  {fprintf(yyout, pfADD);}
+expr    : SUB(expr, expr)         0  {fprintf(yyout, pfSUB);}
+expr    : MUL(expr, expr)         0  {fprintf(yyout, pfMUL);}
+expr    : DIV(expr, expr)         0  {fprintf(yyout, pfDIV);}
+expr    : MOD(expr, expr)         0  {fprintf(yyout, pfMOD);}
+expr    : LT(expr, expr)          0  {fprintf(yyout, pfLT);}
+expr    : GT(expr, expr)          0  {fprintf(yyout, pfGT);}
+expr    : GE(expr, expr)          0  {fprintf(yyout, pfGE);}
+expr    : LE(expr, expr)          0  {fprintf(yyout, pfLE);}
+expr    : NE(expr, expr)          0  {fprintf(yyout, pfNE);}
+expr    : EQ(expr, expr)          0  {fprintf(yyout, pfEQ);}
+expr    : AND(expr, expr)         0  {fprintf(yyout, pfAND);}
+expr    : OR(expr, expr)          0  {fprintf(yyout, pfOR);}
+
+ptr_aux : PTR(lv)                 0  {}
+
+lv  : ID           0  {if (p->user == 0) fprintf(yyout, pfADDR, p->value.s); else fprintf(yyout, pfLOCAL, p->user);}
+
+
+
 %%
 #include "y.tab.h"
 extern void yyerror(const char*);
 extern char **yynames;
 extern int trace;
+
+
+void pfFunction(char* name, int type, Node* body, int enter) {
+
+    // No body
+    if (body == 0) {
+        fprintf(yyout, pfEXTRN, name);
+        return;
+    }
+
+    // Function has body
+    if (strcmp(name, "entry") == 0)
+        fprintf(yyout, pfTEXT pfALIGN pfGLOBL pfLABEL pfENTER, "_entry", pfFUNC, "_entry", enter);
+    else
+        fprintf(yyout, pfTEXT pfALIGN pfGLOBL pfLABEL pfENTER, name, pfFUNC, name, enter);
+
+    // Goes through function body
+    printNode(LEFT_CHILD(body), stdout, yynames);
+
+    yyselect(LEFT_CHILD(LEFT_CHILD(body)));
+
+    // Void (no return)
+    if (type == VOID)
+        fprintf(yyout, pfLEAVE pfRET);
+    else
+        fprintf(yyout, pfLOCAL pfLOAD pfPOP pfLEAVE pfRET, -4);
+
+}
+
+void pfVariable(char *name, Node* type, Node* value) {
+
+    // not initialized
+    if (type == 0)
+        fprintf(yyout, pfBSS pfALIGN pfLABEL pfBYTE pfTEXT, name, 4);
+    // constant
+    else if (type > 5)
+        fprintf(yyout, pfRODATA pfALIGN);
+
+
+    // initialized
+    else
+        fprintf(yyout, pfDATA pfALIGN);
+
+
+    fprintf(yyout, pfLABEL, name);
+
+    if (type == INT)
+        fprintf(yyout, pfIMM, value->value.i);
+    else if (type == STR)
+        fprintf(yyout, pfSTR, value->value.s);
+}
