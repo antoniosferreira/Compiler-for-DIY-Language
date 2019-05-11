@@ -7,8 +7,14 @@
 #include "tabid.h"
 #include "postfix.h"
 
-extern FILE *yyout;
+extern FILE *outfp;
+
+//Auxiliary variables
+int fargs = 0;
+
+
 %}
+
 %term BLOCO='{'
 %term CLOSE='}'
 %term ARGS=','
@@ -28,26 +34,21 @@ extern FILE *yyout;
 %term STAR='('
 %term EN=')'
 %include "y.tab.h"
+
 %%
 
-bloco   : BLOCO(list, decls)
-bloco   : BLOCO(end, decls)
+list    : NIL
+list    : VOID                 0   {}
+list    : END(list, base)      0   {}
+list    : base                 0   {}
 
-end     : END(list, end)
+base    : expr                    0  {fprintf(outfp, pfTRASH, 4);}
 
-decls   : END(decls, PARAM)
-
-
-list    : base
-list    : END(list, base)
-
-base    : bloco
-base    : expr
-
-expr    : ptr_aux                 0  {fprintf(yyout, pfLOAD);}
-expr    : PTR(ptr_aux)            0  {fprintf(yyout, pfLOAD);}
-expr    : ATR(expr, lv)           0  {fprintf(yyout, pfSTORE);}
-expr    : INT                     0  {fprintf(yyout, pfIMM, RIGHT_CHILD(p)->value.i);}
+expr    : lv                      0  {}
+expr    : ptr_aux                 0  {}
+expr    : PTR(ptr_aux)            0  {}
+expr    : ATR(dexpr, lv)          0  {fprintf(outfp, pfSTORE);}
+expr    : INT                     0  {fprintf(outfp, pfIMM, p->value.i);}
 expr    : STR                     0  {}
 expr    : REAL                    0  {}
 expr    : UMINUS(expr)            0  {}
@@ -58,25 +59,30 @@ expr    : INCR(lv)                0  {}
 expr    : DECR(lv)                0  {}
 expr    : POSINC(lv)              0  {}
 expr    : POSDEC(lv)              0  {}
-expr    : ADD(expr, expr)         0  {fprintf(yyout, pfADD);}
-expr    : SUB(expr, expr)         0  {fprintf(yyout, pfSUB);}
-expr    : MUL(expr, expr)         0  {fprintf(yyout, pfMUL);}
-expr    : DIV(expr, expr)         0  {fprintf(yyout, pfDIV);}
-expr    : MOD(expr, expr)         0  {fprintf(yyout, pfMOD);}
-expr    : LT(expr, expr)          0  {fprintf(yyout, pfLT);}
-expr    : GT(expr, expr)          0  {fprintf(yyout, pfGT);}
-expr    : GE(expr, expr)          0  {fprintf(yyout, pfGE);}
-expr    : LE(expr, expr)          0  {fprintf(yyout, pfLE);}
-expr    : NE(expr, expr)          0  {fprintf(yyout, pfNE);}
-expr    : EQ(expr, expr)          0  {fprintf(yyout, pfEQ);}
-expr    : AND(expr, expr)         0  {fprintf(yyout, pfAND);}
-expr    : OR(expr, expr)          0  {fprintf(yyout, pfOR);}
+expr    : ADD(expr, expr)         0  {fprintf(outfp, pfADD);}
+expr    : SUB(expr, expr)         0  {}
+expr    : MUL(expr, expr)         0  {}
+expr    : DIV(expr, expr)         0  {}
+expr    : MOD(expr, expr)         0  {fprintf(outfp, pfMOD);}
+expr    : LT(expr, expr)          0  {fprintf(outfp, pfLT);}
+expr    : GT(expr, expr)          0  {fprintf(outfp, pfGT);}
+expr    : GE(expr, expr)          0  {fprintf(outfp, pfGE);}
+expr    : LE(expr, expr)          0  {fprintf(outfp, pfLE);}
+expr    : NE(expr, expr)          0  {fprintf(outfp, pfNE);}
+expr    : EQ(expr, expr)          0  {fprintf(outfp, pfEQ);}
+expr    : AND(expr, expr)         0  {fprintf(outfp, pfAND);}
+expr    : OR(expr, expr)          0  {fprintf(outfp, pfOR);}
+expr    : CALL(ID, fargs)         0  {fprintf(outfp, pfCALL pfTRASH pfPUSH, LEFT_CHILD(p)->value.s, fargs); fargs =0;}
+
+fargs   : ARGS(fargs, fargs)         0 {}
+fargs   : ARGS(NIL, expr)            0 {fargs = fargs + 4; }
 
 ptr_aux : PTR(lv)                 0  {}
 
-lv  : ID           0  {if (p->user == 0) fprintf(yyout, pfADDR, p->value.s); else fprintf(yyout, pfLOCAL, p->user);}
+lv  : LOCAL    0 {/*LOCAL*/ fprintf(outfp, pfLOCAL, p->value.i);}
+lv  : ID       0 {/*GLOBAL*/fprintf(outfp, pfADDR, p->value.s);}
 
-
+dexpr: expr    0 { fprintf(outfp, pfDUP); }
 
 %%
 #include "y.tab.h"
@@ -89,48 +95,45 @@ void pfFunction(char* name, int type, Node* body, int enter) {
 
     // No body
     if (body == 0) {
-        fprintf(yyout, pfEXTRN, name);
+        fprintf(outfp, pfEXTRN, name);
         return;
     }
 
     // Function has body
     if (strcmp(name, "entry") == 0)
-        fprintf(yyout, pfTEXT pfALIGN pfGLOBL pfLABEL pfENTER, "_entry", pfFUNC, "_entry", enter);
+        fprintf(outfp, pfTEXT pfALIGN pfGLOBL pfLABEL pfENTER, "entry", pfFUNC, "entry", enter);
     else
-        fprintf(yyout, pfTEXT pfALIGN pfGLOBL pfLABEL pfENTER, name, pfFUNC, name, enter);
+        fprintf(outfp, pfTEXT pfALIGN pfGLOBL pfLABEL pfENTER, name, pfFUNC, name, enter);
 
     // Goes through function body
-    printNode(LEFT_CHILD(body), stdout, yynames);
-
-    yyselect(LEFT_CHILD(LEFT_CHILD(body)));
+    printNode(body, stdout, yynames);
+    yyselect(LEFT_CHILD(body)); // only needs to postfix instrs
 
     // Void (no return)
     if (type == VOID)
-        fprintf(yyout, pfLEAVE pfRET);
+        fprintf(outfp, pfLEAVE pfRET);
     else
-        fprintf(yyout, pfLOCAL pfLOAD pfPOP pfLEAVE pfRET, -4);
+        fprintf(outfp, pfLOCAL pfLOAD pfPOP pfLEAVE pfRET, -4);
 
 }
 
 void pfVariable(char *name, Node* type, Node* value) {
 
     // not initialized
-    if (type == 0)
-        fprintf(yyout, pfBSS pfALIGN pfLABEL pfBYTE pfTEXT, name, 4);
+    if (type->value.i == 0)
+        fprintf(outfp, pfBSS pfALIGN pfLABEL pfBYTE pfTEXT, name, 4);
     // constant
-    else if (type > 5)
-        fprintf(yyout, pfRODATA pfALIGN);
-
+    else if (type->value.i > 5)
+        fprintf(outfp, pfRODATA pfALIGN);
 
     // initialized
     else
-        fprintf(yyout, pfDATA pfALIGN);
+        fprintf(outfp, pfDATA pfALIGN);
 
+    fprintf(outfp, pfLABEL, name);
 
-    fprintf(yyout, pfLABEL, name);
-
-    if (type == INT)
-        fprintf(yyout, pfIMM, value->value.i);
-    else if (type == STR)
-        fprintf(yyout, pfSTR, value->value.s);
+    if (type->value.i == INT)
+        fprintf(outfp, pfIMM, value->value.i);
+    else if (type->value.i == STR)
+        fprintf(outfp, pfSTR, value->value.s);
 }

@@ -23,7 +23,9 @@ static char *fpar;
 
 
 // POSTFIX AUXILIARIS
-int locals_size = 0; // Local variables on function block
+int pos; // Local variables on function block
+int locals_size;
+
 %}
 
 %union {
@@ -66,7 +68,7 @@ file	:
 	| file public tipo ID init	{ IDnew($3->value.i, $4, 0); declare($2, 0, $3, $4, $5); }
 	| file public CONST tipo ID init	{ IDnew($4->value.i+5, $5, 0); declare($2, 1, $4, $5, $6); }
 	| file public tipo ID { enter($2, $3->value.i, $4); } finit { function($2, $3, $4, $6); }
-    | file public VOID ID { enter($2, 4, $4); } finit { function($2, intNode(VOID, 4), $4, $6); }
+    	| file public VOID ID { enter($2, 4, $4); } finit {function($2, intNode(VOID, 4), $4, $6); }
 	;
 
 public	:           { $$ = 0; }
@@ -91,35 +93,43 @@ init	: ATR ID ';'		{ $$ = strNode(ID, $2); $$->info = IDfind($2, 0) + 10; }
 	| ATR '-' REAL ';'	{ $$ = realNode(REAL, -$3); $$->info = 3; }
         ;
 
-finit   : '(' params ')' blocop { $$ = binNode('(', $4, $2); }
-	| '(' ')' blocop        { $$ = binNode('(', $3, 0); }
+finit   : '(' {pos = 8;} params ')' {pos = 0;} blocop 	{ $$ = binNode('(', $6, $3); }
+	| '(' ')' {pos = 0;} blocop        		{ $$ = binNode('(', $4, 0); }
 	;
 
-blocop  : ';'   { $$ = 0; }
-        | bloco ';'   { $$ = $1; }
+blocop  : ';'   	{ $$ = 0; }
+        | bloco ';'	{ $$ = $1; }
         ;
 
 params	: param
-	    | params ',' param      { $$ = binNode(',', $1, $3); }
-	    ;
+	| params ',' param      { $$ = binNode(',', $1, $3); }
+	;
 
 bloco	: '{' { IDpush(); } decls list end '}'    { $$ = binNode('{', $5 ? binNode(';', $4, $5) : $4, $3); IDpop();}
 	;
 
 decls	:                       { $$ = 0; }
-		| decls param ';'       { $$ = binNode(';', $1, $2); }
-		;
+	| decls param ';'       { $$ = binNode(';', $1, $2); }
+	;
 
 param	: tipo ID               { $$ = binNode(PARAM, $1, strNode(ID, $2));
-                                  IDnew($1->value.i, $2, 0);
-                                  if (IDlevel() == 1) fpar[++fpar[0]] = $1->value.i;
-                                  else locals_size = locals_size + 4;
+                                  /* Parameter*/
+                                  if (IDlevel() == 1) {
+                                  	fpar[++fpar[0]] = $1->value.i;
+                                  	pos = pos + 4;
+                                  }
+                                  /* Local variable */
+                                  else {
+                                  	pos = pos - 4;
+                                  	locals_size = locals_size + 4;
+                                  }
+                                  IDnew($1->value.i, $2, pos);
                                 }
 	;
 
 stmt	: base
-		| brk
-		;
+	| brk
+	;
 
 base	: ';'                   { $$ = nilNode(VOID); }
 	| DO { ncicl++; } stmt WHILE expr ';' { $$ = binNode(WHILE, binNode(DO, nilNode(START), $3), $5); ncicl--; }
@@ -136,7 +146,7 @@ base	: ';'                   { $$ = nilNode(VOID); }
 end	:		{ $$ = 0; }
 	| brk;
 
-brk : BREAK intp ';'        { $$ = intNode(BREAK, $2); if ($2 <= 0 || $2 > ncicl) yyerror("invalid break argument"); }
+brk 	: BREAK intp ';'        { $$ = intNode(BREAK, $2); if ($2 <= 0 || $2 > ncicl) yyerror("invalid break argument"); }
 	| CONTINUE intp ';'     { $$ = intNode(CONTINUE, $2); if ($2 <= 0 || $2 > ncicl) yyerror("invalid continue argument"); }
 	;
 
@@ -160,7 +170,9 @@ lv	: ID		{ long pos; int typ = IDfind($1, &pos);
                           if (pos == 0) $$ = strNode(ID, $1);
                           else $$ = intNode(LOCAL, pos);
 			  $$->info = typ;
+			  //$$->user = pos;
 			}
+
 	| ID '[' expr ']' { Node *n;
                             long pos; int siz, typ = IDfind($1, &pos);
                             if (typ / 10 != 1 && typ % 5 != 2) yyerror("not a pointer");
@@ -175,7 +187,7 @@ lv	: ID		{ long pos; int typ = IDfind($1, &pos);
 	;
 
 expr	: lv		{ $$ = uniNode(PTR, $1); $$->info = $1->info; }
-		| '*' lv        { $$ = uniNode(PTR, uniNode(PTR, $2)); if ($2->info % 5 == 2) $$->info = 1; else if ($2->info / 10 == 1) $$->info = $2->info % 10; else yyerror("can dereference lvalue"); }
+	| '*' lv        { $$ = uniNode(PTR, uniNode(PTR, $2)); if ($2->info % 5 == 2) $$->info = 1; else if ($2->info / 10 == 1) $$->info = $2->info % 10; else yyerror("can dereference lvalue"); }
 		| lv ATR expr   { $$ = binNode(ATR, $3, $1); if ($$->info % 10 > 5) yyerror("constant value to assignment"); if (noassign($1, $3)) yyerror("illegal assignment"); $$->info = $1->info; }
 		| INT           { $$ = intNode(INT, $1); $$->info = 1; }
 		| STR           { $$ = strNode(STR, $1); $$->info = 2; }
@@ -202,7 +214,7 @@ expr	: lv		{ $$ = uniNode(PTR, $1); $$->info = $1->info; }
 		| expr '&' expr { $$ = binNode('&', $1, $3); $$->info = intonly($1, 0); intonly($3, 0); }
 		| expr '|' expr { $$ = binNode('|', $1, $3); $$->info = intonly($1, 0); intonly($3, 0); }
 		| '(' expr ')' { $$ = $2; $$->info = $2->info; }
-		| ID '(' args ')' { $$ = binNode(CALL, strNode(ID, $1), $3);
+		| ID '(' args ')' {$$ = binNode(CALL, strNode(ID, $1), $3);
 								$$->info = checkargs($1, $3); }
 		| ID '(' ')'    { $$ = binNode(CALL, strNode(ID, $1), nilNode(VOID));
 							  $$->info = checkargs($1, 0); }
@@ -319,6 +331,6 @@ void function(int pub, Node *type, char *name, Node *body)
 		else IDreplace(fwd+40, name, par);
 	}
 
-	pfFunction(name, type->attrib, body, locals_size);
+	pfFunction(name, type->attrib, bloco, locals_size);
 	locals_size = 0;
 }
