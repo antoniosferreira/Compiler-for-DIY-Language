@@ -8,11 +8,20 @@
 #include "postfix.h"
 
 extern FILE *outfp;
+char *mklbl(int i);
+static char *mkfunc(char *s);
+char *dupstr(const char *s);
+static void outstr(char *s);
+void addExtrn(char* s);
+
 
 //Auxiliary variables
 int fargs = 0;
+extern long label;
+static char *extrns[100]; /* emit externs at the end only */
+static int extcnt;
 
-
+static long brklbl[20], brkcnt; /* break labels */
 %}
 
 %term BLOCO='{'
@@ -20,6 +29,7 @@ int fargs = 0;
 %term ARGS=','
 %term END=';'
 %term ALLOC='#'
+%term VEC='['
 %term FACT='!'
 %term ADD='+'
 %term SUB='-'
@@ -42,27 +52,57 @@ list    : VOID                 0   {}
 list    : END(list, base)      0   {}
 list    : base                 0   {}
 
-base    : expr                    0  {fprintf(outfp, pfTRASH, 4);}
+stmt    : base                 0 {}
+stmt    : BREAK(VOID)          0 {fprintf(outfp, pfJMP, clbl(lbl2 - 2*($2 - 1))}
+stmt    : CONTINUE(VOID)       0 {}
+stmt    : BREAK(INT)           0 {}
+stmt    : CONTINUE(INT)        0 {}
+stmt    : ELSE(if, stmt)       0 {fprintf(outfp, pfLABEL, mklbl(LEFT_CHILD(p)->place)); }
 
-expr    : lv                      0  {}
-expr    : ptr_aux                 0  {}
+if    : IF(expr, stmt)         0  {p->place = ++label; fprintf(outfp, pfJMP pfLABEL, mklbl(p->place), mklbl(LEFT_CHILD(p)->place));}
+
+base    : expr                 0     {fprintf(outfp, pfTRASH, 4); }
+base    : IF(cond,stmt)	       0     {fprintf(outfp, pfLABEL, mklbl(LEFT_CHILD(p)->place)); }
+base    : WHILE(do, stmt)      0     {fprintf(outfp, pfJMP pfLABEL, mklbl(LEFT_CHILD(LEFT_CHILD(p))->place), mklbl(LEFT_CHILD(p)->place)); }
+base    : BLOCO(list, decls)
+
+decls   : END(decls, VOID)
+decls   : VOID
+
+do      : DO(begin,expr) 1 { p->place = (brklbl[++brkcnt] = ++label); fprintf(outfp, pfJZ, mklbl(label)); }
+begin   :	START		 1 { p->place = ++label; fprintf(outfp, pfLABEL, mklbl(label)); }
+
+
+cond:	expr		            1   { p->place = ++label; fprintf(outfp, pfJZ, mklbl(p->place)); }
+
+
+
+expr    : lv                      0  {fprintf(outfp, pfLOAD);}
+expr    : ptr_aux                 0  {fprintf(outfp, pfLOAD);}
 expr    : PTR(ptr_aux)            0  {}
 expr    : ATR(dexpr, lv)          0  {fprintf(outfp, pfSTORE);}
-expr    : INT                     0  {fprintf(outfp, pfIMM, p->value.i);}
-expr    : STR                     0  {}
+
+expr    : INT                     0     {fprintf(outfp, pfIMM, p->value.i);}
+expr    : STR                     0     {label++;
+                                         fprintf(outfp, pfRODATA pfALIGN pfLABEL, mklbl(label));
+                                         outstr(p->value.s);
+                                         fprintf(outfp, pfTEXT pfADDR, mklbl(label));
+                                        }
+
 expr    : REAL                    0  {}
+
 expr    : UMINUS(expr)            0  {}
 expr    : NOT(expr)               0  {}
 expr    : REF(expr)               0  {}
 expr    : FACT(expr)              0  {}
-expr    : INCR(lv)                0  {}
-expr    : DECR(lv)                0  {}
-expr    : POSINC(lv)              0  {}
-expr    : POSDEC(lv)              0  {}
+expr    : INCR(lv)                0  {fprintf(outfp, pfINCR, 1);}
+expr    : DECR(lv)                0  {fprintf(outfp, pfDECR, 1);}
+expr    : POSINC(lv)              0  {fprintf(outfp, pfINCR, 1);}
+expr    : POSDEC(lv)              0  {fprintf(outfp, pfDECR, 1);}
 expr    : ADD(expr, expr)         0  {fprintf(outfp, pfADD);}
-expr    : SUB(expr, expr)         0  {}
-expr    : MUL(expr, expr)         0  {}
-expr    : DIV(expr, expr)         0  {}
+expr    : SUB(expr, expr)         0  {fprintf(outfp, pfSUB);}
+expr    : MUL(expr, expr)         0  {fprintf(outfp, pfMUL);}
+expr    : DIV(expr, expr)         0  {fprintf(outfp, pfDIV);}
 expr    : MOD(expr, expr)         0  {fprintf(outfp, pfMOD);}
 expr    : LT(expr, expr)          0  {fprintf(outfp, pfLT);}
 expr    : GT(expr, expr)          0  {fprintf(outfp, pfGT);}
@@ -72,15 +112,20 @@ expr    : NE(expr, expr)          0  {fprintf(outfp, pfNE);}
 expr    : EQ(expr, expr)          0  {fprintf(outfp, pfEQ);}
 expr    : AND(expr, expr)         0  {fprintf(outfp, pfAND);}
 expr    : OR(expr, expr)          0  {fprintf(outfp, pfOR);}
-expr    : CALL(ID, fargs)         0  {fprintf(outfp, pfCALL pfTRASH pfPUSH, LEFT_CHILD(p)->value.s, fargs); fargs =0;}
+expr    : CALL(ID, fargs)         0  {fprintf(outfp, pfCALL pfTRASH pfPUSH, mkfunc(LEFT_CHILD(p)->value.s), -(int)(pfWORD*(RIGHT_CHILD(p)->place))); fargs =0;}
+expr    : CALL(ID, VOID)          0  {fprintf(outfp, pfCALL pfPUSH,mkfunc(LEFT_CHILD(p)->value.s));}
 
 fargs   : ARGS(fargs, fargs)         0 {}
-fargs   : ARGS(NIL, expr)            0 {fargs = fargs + 4; }
+fargs   : NIL                        0 {fargs = 0; }
+fargs   : expr                       0 {fargs += 4; }
 
 ptr_aux : PTR(lv)                 0  {}
 
 lv  : LOCAL    0 {/*LOCAL*/ fprintf(outfp, pfLOCAL, p->value.i);}
-lv  : ID       0 {/*GLOBAL*/fprintf(outfp, pfADDR, p->value.s);}
+lv  : ID       0 {/*GLOBAL*/ fprintf(outfp, pfADDR, p->value.s);}
+lv  : VEC(lvl,expr) 0 {fprintf(outfp, pfIMM pfMUL pfADD, 4);}
+lvl: lv    1    { fprintf(outfp, pfLOAD); }
+
 
 dexpr: expr    0 { fprintf(outfp, pfDUP); }
 
@@ -93,37 +138,32 @@ extern int trace;
 
 void pfFunction(char* name, int type, Node* body, int enter) {
 
-    // No body
-    if (body == 0) {
-        fprintf(outfp, pfEXTRN, name);
-        return;
-    }
-
+    if (body == 0 || body->attrib == NIL)
+        addExtrn(name);
     // Function has body
-    if (strcmp(name, "entry") == 0)
-        fprintf(outfp, pfTEXT pfALIGN pfGLOBL pfLABEL pfENTER, "entry", pfFUNC, "entry", enter);
-    else
-        fprintf(outfp, pfTEXT pfALIGN pfGLOBL pfLABEL pfENTER, name, pfFUNC, name, enter);
+    if (body != 0) {
+        fprintf(outfp, pfTEXT pfALIGN pfGLOBL pfLABEL pfENTER, mkfunc(name), pfFUNC, mkfunc(name), enter);
 
-    // Goes through function body
-    printNode(body, stdout, yynames);
-    yyselect(LEFT_CHILD(body)); // only needs to postfix instrs
+        // Goes through function body
+        yyselect(LEFT_CHILD(body)); // only needs to postfix instrs
 
-    // Void (no return)
-    if (type == VOID)
-        fprintf(outfp, pfLEAVE pfRET);
-    else
-        fprintf(outfp, pfLOCAL pfLOAD pfPOP pfLEAVE pfRET, -4);
-
+        // Void (no return)
+        if (type == VOID)
+            fprintf(outfp, pfLEAVE pfRET);
+        else
+            fprintf(outfp, pfLOCAL pfLOAD pfPOP pfLEAVE pfRET, -4);
+    }
 }
 
-void pfVariable(char *name, Node* type, Node* value) {
+void pfVariable(char *name, Node* type, int cnst, Node* value) {
 
     // not initialized
-    if (type->value.i == 0)
+    if (!value) {
         fprintf(outfp, pfBSS pfALIGN pfLABEL pfBYTE pfTEXT, name, 4);
+        return;
+    }
     // constant
-    else if (type->value.i > 5)
+    else if (cnst)
         fprintf(outfp, pfRODATA pfALIGN);
 
     // initialized
@@ -136,4 +176,38 @@ void pfVariable(char *name, Node* type, Node* value) {
         fprintf(outfp, pfIMM, value->value.i);
     else if (type->value.i == STR)
         fprintf(outfp, pfSTR, value->value.s);
+}
+
+void externs() {
+  int i;
+
+  for (i = 0; i < extcnt; i++)
+    if (extrns[i])
+      fprintf(outfp, pfEXTRN, extrns[i]);
+}
+
+static void outstr(char *s) {
+  while (*s) fprintf(outfp, pfCHAR, (unsigned char)*s++);
+  fprintf(outfp, pfCHAR, 0);
+}
+
+char *mklbl(int n) {
+  static char buf[20];
+  sprintf(buf, "_i%d", n);
+  return strcpy(malloc(strlen(buf)+1),buf);
+}
+
+static char *mkfunc(char *s) {
+  static char buf[80];
+  strcpy(buf, "_");
+  strcat(buf, s);
+  return buf;
+}
+
+void addExtrn(char* s) {
+
+    for (int i = 0; i < extcnt; i++)
+        if (strcmp(mkfunc(s), extrns[i]) == 0) return;
+
+    extrns[extcnt++] = dupstr(mkfunc(s));
 }

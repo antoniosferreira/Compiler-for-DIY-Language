@@ -14,7 +14,7 @@ $(LANG): $(LANG).y $(LANG).l $(LANG).brg
 	make -C lib
 	byacc -dv $(LANG).y
 	flex -l $(LANG).l
-	pburg -T $(LANG).brg
+	pburg $(LANG).brg
 	$(LINK.c) -o $(LANG) -I$(LIB) lex.yy.c y.tab.c yyselect.c -L$(LIB) -lutil
 
 clean::
