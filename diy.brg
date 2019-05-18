@@ -13,15 +13,15 @@ static char *mkfunc(char *s);
 char *dupstr(const char *s);
 static void outstr(char *s);
 void addExtrn(char* s);
-
+char *mkclbl(int n);
 
 //Auxiliary variables
 int fargs = 0;
-extern long label;
+static long label = 0;
 static char *extrns[100]; /* emit externs at the end only */
 static int extcnt;
 
-static long brklbl[20], brkcnt; /* break labels */
+static long clabel[20], clabels = 0; /* cycle labels */
 %}
 
 %term BLOCO='{'
@@ -48,42 +48,45 @@ static long brklbl[20], brkcnt; /* break labels */
 %%
 
 list    : NIL
-list    : VOID                 0   {}
-list    : END(list, base)      0   {}
-list    : base                 0   {}
+list    : VOID                 0    {}
+list    : END(list, base)      0    {}
+list    : base                 0    {}
 
-stmt    : base                 0 {}
-stmt    : BREAK(VOID)          0 {fprintf(outfp, pfJMP, clbl(lbl2 - 2*($2 - 1))}
-stmt    : CONTINUE(VOID)       0 {}
-stmt    : BREAK(INT)           0 {}
-stmt    : CONTINUE(INT)        0 {}
-stmt    : ELSE(if, stmt)       0 {fprintf(outfp, pfLABEL, mklbl(LEFT_CHILD(p)->place)); }
+brk    : CONTINUE             0    {}
+brk    : BREAK                0    {fprintf(outfp, pfJMP, mkclbl(clabels * p->value.i));}
 
-if    : IF(expr, stmt)         0  {p->place = ++label; fprintf(outfp, pfJMP pfLABEL, mklbl(p->place), mklbl(LEFT_CHILD(p)->place));}
+stmt    : base                 0    {}
+stmt    : brk                  0    {}
 
 base    : expr                 0     {fprintf(outfp, pfTRASH, 4); }
-base    : IF(cond,stmt)	       0     {fprintf(outfp, pfLABEL, mklbl(LEFT_CHILD(p)->place)); }
-base    : WHILE(do, stmt)      0     {fprintf(outfp, pfJMP pfLABEL, mklbl(LEFT_CHILD(LEFT_CHILD(p))->place), mklbl(LEFT_CHILD(p)->place)); }
-base    : BLOCO(list, decls)
+base    : WHILE(do, expr)      0     {fprintf(outfp, pfLABEL, mkclbl(clabels++));}
+base    : BLOCO(list, decls)   0     {}
+base    : BLOCO(end, decls)    0     {}
+base    : ELSE(if, stmt)       0     {fprintf(outfp, pfLABEL, mklbl(LEFT_CHILD(p)->place)); }
+base    : IF(cond, stmt)       0     {fprintf(outfp, pfLABEL, mklbl(LEFT_CHILD(p)->place)); }
 
-decls   : END(decls, VOID)
-decls   : VOID
+end     : END(list, brk)
+if      : IF(cond, stmt)       0     {p->place = ++label; fprintf(outfp, pfJMP pfLABEL, mklbl(p->place), mklbl(LEFT_CHILD(p)->place));}
 
-do      : DO(begin,expr) 1 { p->place = (brklbl[++brkcnt] = ++label); fprintf(outfp, pfJZ, mklbl(label)); }
-begin   :	START		 1 { p->place = ++label; fprintf(outfp, pfLABEL, mklbl(label)); }
+cond    : expr          0 {p->place = ++label; fprintf(outfp, pfJZ, mklbl(p->place));}
+
+decls   : END(decls, VOID)    0     {}
+decls   : VOID                0     {}
 
 
-cond:	expr		            1   { p->place = ++label; fprintf(outfp, pfJZ, mklbl(p->place)); }
+do      :   DO(begin, stmt)    1  {}
+begin   :	START              1  {fprintf(outfp, pfLABEL, mkclbl(clabels++)); }
 
 
+ptr_aux : PTR(lv)                 0  {fprintf(outfp, pfLOAD);}
 
 expr    : lv                      0  {fprintf(outfp, pfLOAD);}
-expr    : ptr_aux                 0  {fprintf(outfp, pfLOAD);}
-expr    : PTR(ptr_aux)            0  {}
+expr    : PTR(ptr_aux)            0  {fprintf(outfp, pfLOAD);}
 expr    : ATR(dexpr, lv)          0  {fprintf(outfp, pfSTORE);}
 
-expr    : INT                     0     {fprintf(outfp, pfIMM, p->value.i);}
-expr    : STR                     0     {label++;
+
+expr    : INT                     0  {fprintf(outfp, pfIMM, p->value.i);}
+expr    : STR                     0  {label++;
                                          fprintf(outfp, pfRODATA pfALIGN pfLABEL, mklbl(label));
                                          outstr(p->value.s);
                                          fprintf(outfp, pfTEXT pfADDR, mklbl(label));
@@ -93,7 +96,7 @@ expr    : REAL                    0  {}
 
 expr    : UMINUS(expr)            0  {}
 expr    : NOT(expr)               0  {}
-expr    : REF(expr)               0  {}
+expr    : REF(lv)                 0  {}
 expr    : FACT(expr)              0  {}
 expr    : INCR(lv)                0  {fprintf(outfp, pfINCR, 1);}
 expr    : DECR(lv)                0  {fprintf(outfp, pfDECR, 1);}
@@ -112,19 +115,19 @@ expr    : NE(expr, expr)          0  {fprintf(outfp, pfNE);}
 expr    : EQ(expr, expr)          0  {fprintf(outfp, pfEQ);}
 expr    : AND(expr, expr)         0  {fprintf(outfp, pfAND);}
 expr    : OR(expr, expr)          0  {fprintf(outfp, pfOR);}
-expr    : CALL(ID, fargs)         0  {fprintf(outfp, pfCALL pfTRASH pfPUSH, mkfunc(LEFT_CHILD(p)->value.s), -(int)(pfWORD*(RIGHT_CHILD(p)->place))); fargs =0;}
+expr    : CALL(ID, fargs)         0  {fprintf(outfp, pfCALL pfTRASH pfPUSH, mkfunc(LEFT_CHILD(p)->value.s), (int)(pfWORD*(RIGHT_CHILD(p)->place))); fargs =0;}
 expr    : CALL(ID, VOID)          0  {fprintf(outfp, pfCALL pfPUSH,mkfunc(LEFT_CHILD(p)->value.s));}
 
-fargs   : ARGS(fargs, fargs)         0 {}
-fargs   : NIL                        0 {fargs = 0; }
-fargs   : expr                       0 {fargs += 4; }
+fargs   : ARGS(NIL, farg)         0 { p->place = RIGHT_CHILD(p)->place;}
+fargs   : ARGS(fargs, farg)       0 { p->place =  ((LEFT_CHILD(p)->place) + (RIGHT_CHILD(p)->place)); fprintf(outfp, pfSWAP);}
+fargs   : NIL                     0 { p->place = 0; }
+farg    : expr                    0 { p->place = 1; }
 
-ptr_aux : PTR(lv)                 0  {}
+lv  : LOCAL                 0 {/*LOCAL*/ fprintf(outfp, pfLOCAL, p->value.i);}
+lv  : ID                    0 {/*GLOBAL*/ fprintf(outfp, pfADDR, p->value.s);}
 
-lv  : LOCAL    0 {/*LOCAL*/ fprintf(outfp, pfLOCAL, p->value.i);}
-lv  : ID       0 {/*GLOBAL*/ fprintf(outfp, pfADDR, p->value.s);}
-lv  : VEC(lvl,expr) 0 {fprintf(outfp, pfIMM pfMUL pfADD, 4);}
-lvl: lv    1    { fprintf(outfp, pfLOAD); }
+lv  : VEC(lvl,expr)         0 {fprintf(outfp, pfIMM pfMUL pfADD, 4);}
+lvl : lv    1               { fprintf(outfp, pfLOAD); }
 
 
 dexpr: expr    0 { fprintf(outfp, pfDUP); }
@@ -155,27 +158,35 @@ void pfFunction(char* name, int type, Node* body, int enter) {
     }
 }
 
-void pfVariable(char *name, Node* type, int cnst, Node* value) {
+void pfVariable(char *name, Node* type, int cnst, int pub, Node* value) {
 
     // not initialized
-    if (!value) {
-        fprintf(outfp, pfBSS pfALIGN pfLABEL pfBYTE pfTEXT, name, 4);
+    if (value == 0 || type->value.i == 0) {
+        fprintf(outfp, pfBSS pfALIGN pfLABEL pfBYTE, name, 4);
         return;
-    }
-    // constant
-    else if (cnst)
-        fprintf(outfp, pfRODATA pfALIGN);
 
     // initialized
-    else
-        fprintf(outfp, pfDATA pfALIGN);
+    } else {
+        fprintf(outfp, pfDATA pfALIGN pfGLOBL pfLABEL, name, pfOBJ, name);
 
-    fprintf(outfp, pfLABEL, name);
+        // ID
+        if (value->info >= 10)
+            fprintf(outfp, pfID, value->value.s);
 
-    if (type->value.i == INT)
-        fprintf(outfp, pfIMM, value->value.i);
-    else if (type->value.i == STR)
-        fprintf(outfp, pfSTR, value->value.s);
+        // INTEGER
+        else if (type->value.i == 1)
+            fprintf(outfp, pfINTEGER, value->value.i);
+        // STRING
+        else if (type->value.i == 2) {
+            fprintf(outfp, pfRODATA pfALIGN pfLABEL, mklbl(++label));
+            outstr(value->value.s);
+            fprintf(outfp, pfDATA pfID, mklbl(label));
+        }
+        // REAL
+        else if (type->value.i == 3)
+            fprintf(outfp, pfDOUBLE, value->value.i);
+
+    }
 }
 
 void externs() {
@@ -194,6 +205,12 @@ static void outstr(char *s) {
 char *mklbl(int n) {
   static char buf[20];
   sprintf(buf, "_i%d", n);
+  return strcpy(malloc(strlen(buf)+1),buf);
+}
+
+char *mkclbl(int n) {
+  static char buf[20];
+  sprintf(buf, "_c%d", n);
   return strcpy(malloc(strlen(buf)+1),buf);
 }
 
