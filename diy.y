@@ -7,7 +7,7 @@
 #include "node.h"
 #include "tabid.h"
 
-extern void pfVariable(char *name, Node* type, int cnst, Node* value);
+extern void pfVariable(char *name, Node* type, int cnst, int pub, Node* value);
 extern void pfFunction(char* name, int type, Node* body, int enter);
 extern int yylex();
 void yyerror(char *s);
@@ -26,10 +26,8 @@ static char *fpar;
 
 // POSTFIX AUXS
 char *mklbl(long);
-long label;
-
 int pos; // Local variables on function block
-int locals_size;
+int locals_size = 4;
 
 
 %}
@@ -99,7 +97,7 @@ init	: ATR ID ';'		{ $$ = strNode(ID, $2); $$->info = IDfind($2, 0) + 10; }
 	| ATR '-' REAL ';'	{ $$ = realNode(REAL, -$3); $$->info = 3; }
         ;
 
-finit   : '(' {pos = 4;} params ')' {pos = -4;} blocop 	{ $$ = binNode('(', $6, $3); }
+finit   : '(' {pos = 8;} params ')' {pos = -4;} blocop 	{ $$ = binNode('(', $6, $3); }
 	| '(' ')' {pos = -4;} blocop        		{ $$ = binNode('(', $4, 0); }
 	;
 
@@ -122,14 +120,17 @@ param	: tipo ID               { $$ = binNode(PARAM, $1, strNode(ID, $2));
                                   /* Parameter*/
                                   if (IDlevel() == 1) {
                                   	fpar[++fpar[0]] = $1->value.i;
+                                  	IDnew($1->value.i, $2, pos);
+
                                   	pos = pos + 4;
                                   }
                                   /* Local variable */
                                   else {
                                   	pos = pos - 4;
                                   	locals_size = locals_size + 4;
+                                  	IDnew($1->value.i, $2, pos);
+
                                   }
-                                  IDnew($1->value.i, $2, pos);
                                 }
 	;
 
@@ -138,7 +139,7 @@ stmt	: base
 	;
 
 base	: ';'                   { $$ = nilNode(VOID); }
-	| DO { ncicl++; long l1 = label++; } stmt WHILE expr ';' { $$ = binNode(WHILE, binNode(DO, nilNode(START), $3), $5); ncicl--; }
+	| DO { ncicl++;} stmt WHILE expr ';' { $$ = binNode(WHILE, binNode(DO, nilNode(START), $3), $5); ncicl--; }
 	| FOR lv IN expr UPTO expr step DO { ncicl++; } stmt       { $$ = binNode(';', binNode(ATR, $4, $2), binNode(FOR, binNode(IN, nilNode(START), binNode(LE, uniNode(PTR, $2), $6)), binNode(';', $10, binNode(ATR, binNode('+', uniNode(PTR, $2), $7), $2)))); ncicl--; }
 	| FOR lv IN expr DOWNTO expr step DO { ncicl++; } stmt       { $$ = binNode(';', binNode(ATR, $4, $2), binNode(FOR, binNode(IN, nilNode(START), binNode(GE, uniNode(PTR, $2), $6)), binNode(';', $10, binNode(ATR, binNode('-', uniNode(PTR, $2), $7), $2)))); ncicl--; }
 	| IF expr THEN stmt %prec IFX    {$$ = binNode(IF, $2, $4); }
@@ -160,7 +161,7 @@ step	:               { $$ = intNode(INT, 1); }
 	| STEP expr     { $$ = $2; }
 	;
 
-intp	:       { $$ = nilNode(VOID); }
+intp	:       { $$ = 1; }
 	| INT
 	;
 
@@ -168,8 +169,8 @@ list	: base
 	| list base     { $$ = binNode(';', $1, $2); }
 	;
 
-args	: expr		{ $$ = binNode(',', nilNode(NIL), $1); }
-	| args ',' expr { $$ = binNode(',', $1, $3); }
+args	: expr		{ $$ = binNode(',', $1, nilNode(NIL)); }
+	| args ',' expr { $$ = binNode(',', $3, $1); }
 	;
 
 lv	: ID		{ long pos; int typ = IDfind($1, &pos);
@@ -188,6 +189,7 @@ lv	: ID		{ long pos; int typ = IDfind($1, &pos);
                             else if (typ % 5 == 2) typ = 1;
 			    if (typ >= 5) typ -= 5;
 			    $$->info = typ;
+			    printf("HERE!!%d", $$->info);
 			  }
 	;
 
@@ -239,7 +241,7 @@ void declare(int pub, int cnst, Node *type, char *name, Node *value)
   if (!value) {
     if (!pub && cnst) yyerror("local constants must be initialised");
 
-    pfVariable(name, type, cnst, value);
+    pfVariable(name, type, cnst, pub, value);
     return;
   }
   if (value->attrib = INT && value->value.i == 0 && type->value.i > 10)
@@ -249,7 +251,7 @@ void declare(int pub, int cnst, Node *type, char *name, Node *value)
     yyerror("wrong types in initialization");
 
   //todo: check if needed
-  pfVariable(name, type, cnst, value);
+  pfVariable(name, type, cnst, pub, value);
 
 }
 void enter(int pub, int typ, char *name) {
@@ -284,7 +286,7 @@ int checkargs(char *name, Node *args) {
 				err = 1;
 				break;
 			}
-			n = RIGHT_CHILD(args);
+			n = LEFT_CHILD(args);
 			typ = n->info;
 			if (typ % 10 > 5) typ -= 5; /* remove CONST */
 			null =  (n->attrib == INT && n->value.i == 0 && arg[i] > 10) ? 1 : 0;
@@ -293,7 +295,7 @@ int checkargs(char *name, Node *args) {
 				err = 1;
 				break;
 			}
-			args = LEFT_CHILD(args);
+			args = RIGHT_CHILD(args);
 			i--;
 		} while (args->attrib != NIL);
 		if (!err && i > 0)
